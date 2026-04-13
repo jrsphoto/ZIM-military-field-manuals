@@ -1,0 +1,14 @@
+# ZIM output files
+*.zim
+
+# Downloaded PDFs -- too large for git
+html/pdfs/
+
+# Failed download log
+FAILED.txt
+
+# macOS junk
+.DS_Store
+
+# Any temp files left behind by zimwriterfs
+*.zim.tmp
