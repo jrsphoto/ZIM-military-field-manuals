@@ -37,7 +37,7 @@ chmod +x install.sh
 ```
 
 The script will:
-- Download the full PDF collection from archive.org as a single zip (~7GB -- expect it to take a while)
+- Download the full PDF collection from archive.org as a single zip (~1.8GB -- expect it to take a while)
 - Extract all PDFs into `html/pdfs/`
 - Build `field_manuals.zim` in the current directory
 - Print the deployment commands when finished
