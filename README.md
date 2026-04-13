@@ -14,43 +14,37 @@ The web interface has search, branch filtering, and VIEW/DOWNLOAD buttons for ea
 
 ```
 Field Manuals/
-  build_zim.sh            # builds the .zim file
-  download_manuals.sh     # downloads all PDFs from archive.org
+  install.sh              # downloads PDFs and builds the ZIM
   html/
     index.html            # the web interface
     illustration.png      # 48x48 icon required by zimwriterfs
-    pdfs/                 # downloaded PDF files go here
+    pdfs/                 # PDFs are downloaded here (not tracked by git)
 ```
 
 ## Setup
 
-### 1. Download the PDFs
+### 1. Install Dependencies
 
 ```bash
-chmod +x download_manuals.sh
-./download_manuals.sh
+sudo apt install wget unzip python3 zim-tools
 ```
 
-This downloads all PDFs into `html/pdfs/`. It will skip files that already exist so it's safe to re-run if something fails. Expect it to take a while -- there's about 7GB of material.
-
-### 2. Update the Base URL
-
-Before building the ZIM, open `html/index.html` and change the `BASE` constant near the bottom of the file from the archive.org URL to the local path:
-
-```javascript
-const BASE = './pdfs/';
-```
-
-### 3. Build the ZIM
+### 2. Run the Installer
 
 ```bash
-chmod +x build_zim.sh
-./build_zim.sh
+chmod +x install.sh
+./install.sh
 ```
 
-Output will be `field_manuals.zim` in this directory. Takes several minutes depending on your hardware.
+The script will:
+- Download the full PDF collection from archive.org as a single zip (~7GB -- expect it to take a while)
+- Extract all PDFs into `html/pdfs/`
+- Build `field_manuals.zim` in the current directory
+- Print the deployment commands when finished
 
-### 4. Deploy to Kiwix
+If the download gets interrupted, just re-run the script -- wget will resume where it left off and the script will offer to reuse the partial zip.
+
+### 3. Deploy to Kiwix
 
 Copy the ZIM to your Kiwix library folder:
 
@@ -72,22 +66,31 @@ Then restart the container:
 docker restart nomad_kiwix_server
 ```
 
+## Skip Flags
+
+If you've already downloaded the PDFs and just need to rebuild the ZIM:
+
+```bash
+./install.sh --skip-download
+```
+
+If you just want the PDFs without building the ZIM:
+
+```bash
+./install.sh --skip-zim
+```
+
 ## Rebuilding
 
-If you add more PDFs or change the HTML, just run `build_zim.sh` again and repeat the deploy steps. The script will remove the old ZIM before building the new one.
+If you update `index.html` or add more PDFs, re-run `install.sh --skip-download` and repeat the deploy steps. The script removes the old ZIM before building a new one.
 
 ## Dependencies
 
-- `wget` -- for the download script
+- `wget` -- downloads the PDF collection
+- `unzip` -- extracts the downloaded zip
+- `python3` -- generates the illustration.png icon if missing
 - `zimwriterfs` -- part of the `zim-tools` package
-- `python3` -- used by the download script to decode filenames
 - Docker with a running Kiwix container
-
-Install zim-tools if you don't have it:
-
-```bash
-sudo apt install zim-tools
-```
 
 ## Source
 
