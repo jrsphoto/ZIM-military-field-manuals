@@ -8,6 +8,8 @@ This project packages ~180 public domain military field manuals (Army, USMC, Nav
 
 The web interface has search, branch filtering, and VIEW/DOWNLOAD buttons for each document.
 
+![Field Manual Archive UI](Screenshot.png)
+
 ## Directory Structure
 
 ```
