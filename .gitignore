@@ -3,7 +3,7 @@
 
 # Downloaded PDFs -- too large for git
 html/pdfs/
-
+!html/pdfs/.gitkeep
 # Failed download log
 FAILED.txt
 
@@ -12,4 +12,5 @@ FAILED.txt
 
 # Any temp files left behind by zimwriterfs
 *.zim.tmp
-!html/pdfs/.gitkeep
+*.zim_fulltext.idx.tmp
+*.zim_title.idx.tmp
