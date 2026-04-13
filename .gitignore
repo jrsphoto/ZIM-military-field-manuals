@@ -12,3 +12,4 @@ FAILED.txt
 
 # Any temp files left behind by zimwriterfs
 *.zim.tmp
+!html/pdfs/.gitkeep
