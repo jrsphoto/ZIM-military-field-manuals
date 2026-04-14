@@ -211,17 +211,17 @@ print('  assets/illustration.png created')
   echo "────────────────────────────────────────────────────────────────"
 
   zimwriterfs \
-    -w index.html \
-    -I assets/illustration.png \
-    -l eng \
-    -n "field_manuals" \
-    -t "US Military Field Manuals" \
-    -d "US Army, USMC, Navy & Joint Field Manuals" \
-    -L "A collection of ~180 US military field manuals covering tactics, survival, navigation, engineering, intelligence, special operations and more. Sourced from the Internet Archive." \
-    -c "US Government" \
-    -p "ProjectNomad" \
-    -a "_category:military;military;_ftindex:yes" \
-    -v \
+    --welcome=index.html \
+    --favicon=assets/illustration.png \
+    --language=eng \
+    --name="field_manuals" \
+    --title="US Military Field Manuals" \
+    --description="US Army, USMC, Navy & Joint Field Manuals" \
+    --longDescription="A collection of ~180 US military field manuals covering tactics, survival, navigation, engineering, intelligence, special operations and more. Sourced from the Internet Archive." \
+    --creator="US Government" \
+    --publisher="ProjectNomad" \
+    --tags="_category:military;military;_ftindex:yes" \
+    --verbose \
     "$HTML_DIR" \
     "$ZIM_OUT"
 
