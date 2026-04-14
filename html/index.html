@@ -190,9 +190,6 @@
   .card-btn-view { color: #7ec8a0; border-color: #3a6e52; }
   .card-btn-view:hover { background: rgba(126,200,160,0.12); border-color: #7ec8a0; }
 
-  .card-btn-dl { color: var(--amber); border-color: #6b4a0a; }
-  .card-btn-dl:hover { background: rgba(212,130,10,0.1); border-color: var(--amber); }
-
   /* FOOTER */
   footer {
     border-top: 3px solid var(--amber); background: var(--od-dark);
@@ -274,8 +271,8 @@
 
 <script>
 // Change to ./pdfs/ after running download_manuals.sh locally
-//const BASE = 'https://archive.org/download/military-field-manuals-and-guides/';
-const BASE = './pdfs/'
+const BASE = 'https://archive.org/download/military-field-manuals-and-guides/';
+
 const manuals = [
   // ==================== U.S. ARMY ====================
   { id:'FM 21-76',      title:'Army Survival Manual',                                        branch:'army',  cat:'Survival',    file:'FM%2021-76%20Army%20Survival%20Manual.pdf' },
@@ -506,7 +503,6 @@ function buildSite() {
         </div>
         <div class="card-actions">
           <a class="card-btn card-btn-view" href="${url}" target="_blank" rel="noopener">&#9654; VIEW</a>
-          <a class="card-btn card-btn-dl"   href="${url}" download rel="noopener">&#9660; DOWNLOAD</a>
         </div>`;
       grid.appendChild(card);
     });
