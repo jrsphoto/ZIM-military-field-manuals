@@ -175,9 +175,8 @@ build_zim() {
     exit 1
   fi
 
-  if [[ ! -f "${HTML_DIR}/assets/favicon.png" ]]; then
-    echo -e "  ${YLW}[INFO]${NC}  assets/favicon.png not found -- generating one..."
-    mkdir -p "${HTML_DIR}/assets"
+  if [[ ! -f "${HTML_DIR}/favicon.png" ]]; then
+    echo -e "  ${YLW}[INFO]${NC}  favicon.png not found -- generating one..."
     python3 -c "
 import struct, zlib
 
@@ -191,8 +190,8 @@ def png48(r, g, b):
     data += chunk(b'IEND', b'')
     return b'\x89PNG\r\n\x1a\n' + data
 
-open('${HTML_DIR}/assets/favicon.png', 'wb').write(png48(74, 82, 64))
-print('  assets/favicon.png created')
+open('${HTML_DIR}/favicon.png', 'wb').write(png48(74, 82, 64))
+print('  favicon.png created')
 "
   fi
 
