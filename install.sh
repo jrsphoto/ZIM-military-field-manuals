@@ -215,8 +215,8 @@ print('  illustration.png created')
     -l eng \
     -n "field_manuals" \
     -t "US Military Field Manuals" \
-    -d "Project Nomad offline reference" \
-    -L "Project Nomad offline reference collection of US military field manuals sourced from the Internet Archive. Includes Army, USMC, Navy, Air Force, and joint publications for offline use with Kiwix." \
+    -d "US Army, USMC, Navy & Joint Field Manuals" \
+    -L "A collection of ~180 US military field manuals covering tactics, survival, navigation, engineering, intelligence, special operations and more. Sourced from the Internet Archive." \
     -c "US Government" \
     -p "ProjectNomad" \
     -v \
