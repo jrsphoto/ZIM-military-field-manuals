@@ -294,17 +294,21 @@ deploy() {
     sudo chown "${KIWIX_UID}:${KIWIX_UID}" "$dest_xml"
   fi
 
-  # Remove existing entry if present (ignore errors if not found)
-  echo -e "  ${YLW}[INFO]${NC}  Removing any existing entry from Kiwix library..."
-  EXISTING_ID=$(sudo docker exec -u "$KIWIX_UID" "$CONTAINER" \
-    kiwix-manage /data/kiwix-library.xml show 2>/dev/null | \
-    grep -B1 "name:.*field_manuals" | grep "^id:" | awk '{print $2}' || true)
+  # Remove ALL existing entries pointing at this ZIM file (handles duplicates from repeated deploys)
+  echo -e "  ${YLW}[INFO]${NC}  Removing any existing entries for ${zim_name} from Kiwix library..."
+  while true; do
+    EXISTING_ID=$(sudo docker exec -u "$KIWIX_UID" "$CONTAINER" \
+      kiwix-manage /data/kiwix-library.xml show 2>/dev/null | \
+      grep -B5 "path:.*${zim_name}" | grep "^id:" | head -1 | awk '{print $2}' || true)
 
-  if [[ -n "$EXISTING_ID" ]]; then
+    if [[ -z "$EXISTING_ID" ]]; then
+      break
+    fi
+
     sudo docker exec -u "$KIWIX_UID" "$CONTAINER" \
       kiwix-manage /data/kiwix-library.xml remove "$EXISTING_ID"
-    echo -e "  ${YLW}[INFO]${NC}  Removed existing entry: ${EXISTING_ID}"
-  fi
+    echo -e "  ${YLW}[INFO]${NC}  Removed entry: ${EXISTING_ID}"
+  done
 
   # Add new ZIM to library
   echo -e "  ${YLW}[INFO]${NC}  Registering with Kiwix library..."
