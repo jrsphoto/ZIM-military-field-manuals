@@ -211,7 +211,7 @@ print('  favicon.png created')
 
   zimwriterfs \
     --welcome=index.html \
-    --illustration=favicon.png \
+    --illustration="${HTML_DIR}favicon.png" \
     --language=eng \
     --name="field_manuals" \
     --title="US Military Field Manuals" \
