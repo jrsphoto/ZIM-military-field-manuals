@@ -196,7 +196,7 @@ build_zim() {
 
   zimwriterfs \
     --welcome=index.html \
-    --illustration=${HTML_DIR}favicon.png \
+    --illustration=favicon.png \
     --language=eng \
     --name="field_manuals" \
     --title="US Military Field Manuals" \
