@@ -175,11 +175,6 @@ build_zim() {
     exit 1
   fi
 
-  if [[ ! -f "${HTML_DIR}/favicon.png" ]]; then
-    echo -e "  ${RED}[ERROR]${NC}  favicon.png not found at ${HTML_DIR}/favicon.png"
-    exit 1
-  fi
-
   PDF_COUNT=$(find "$PDF_DIR" -name "*.pdf" 2>/dev/null | wc -l)
   echo -e "  ${CYN}Source:${NC}  ${HTML_DIR}"
   echo -e "  ${CYN}Output:${NC}  ${ZIM_OUT}"
