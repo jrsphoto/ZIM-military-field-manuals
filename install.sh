@@ -176,23 +176,8 @@ build_zim() {
   fi
 
   if [[ ! -f "${HTML_DIR}/favicon.png" ]]; then
-    echo -e "  ${YLW}[INFO]${NC}  favicon.png not found -- generating one..."
-    python3 -c "
-import struct, zlib
-
-def png48(r, g, b):
-    raw = bytes([0] + [r, g, b] * 48) * 48
-    def chunk(t, d):
-        c = struct.pack('>I', len(d)) + t + d
-        return c + struct.pack('>I', zlib.crc32(c[4:]) & 0xffffffff)
-    data  = chunk(b'IHDR', struct.pack('>IIBBBBB', 48, 48, 8, 2, 0, 0, 0))
-    data += chunk(b'IDAT', zlib.compress(raw))
-    data += chunk(b'IEND', b'')
-    return b'\x89PNG\r\n\x1a\n' + data
-
-open('${HTML_DIR}/favicon.png', 'wb').write(png48(74, 82, 64))
-print('  favicon.png created')
-"
+    echo -e "  ${RED}[ERROR]${NC}  favicon.png not found at ${HTML_DIR}/favicon.png"
+    exit 1
   fi
 
   PDF_COUNT=$(find "$PDF_DIR" -name "*.pdf" 2>/dev/null | wc -l)
@@ -211,7 +196,7 @@ print('  favicon.png created')
 
   zimwriterfs \
     --welcome=index.html \
-    --illustration="html/favicon.png" \
+    --illustration=favicon.png \
     --language=eng \
     --name="field_manuals" \
     --title="US Military Field Manuals" \
