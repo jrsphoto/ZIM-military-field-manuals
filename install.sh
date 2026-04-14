@@ -21,6 +21,12 @@
 #
 # To skip the ZIM build (just download the PDFs):
 #   ./install.sh --skip-zim
+#
+# To automatically deploy to a local Kiwix container after building:
+#   ./install.sh --deploy --zim-dest /path/to/kiwix/library --container nomad_kiwix_server
+#
+# All options can be combined:
+#   ./install.sh --skip-download --deploy --zim-dest /opt/project-nomad/storage/zim --container nomad_kiwix_server
 # =============================================================================
 
 set -euo pipefail
@@ -35,14 +41,32 @@ ARCHIVE_URL="https://archive.org/compress/military-field-manuals-and-guides/form
 
 SKIP_DOWNLOAD=0
 SKIP_ZIM=0
+DEPLOY=0
+ZIM_DEST=""
+CONTAINER=""
 
 for arg in "$@"; do
   case $arg in
-    --skip-download) SKIP_DOWNLOAD=1 ;;
-    --skip-zim)      SKIP_ZIM=1 ;;
-    *)               echo "Unknown argument: $arg"; exit 1 ;;
+    --skip-download)   SKIP_DOWNLOAD=1 ;;
+    --skip-zim)        SKIP_ZIM=1 ;;
+    --deploy)          DEPLOY=1 ;;
+    --zim-dest=*)      ZIM_DEST="${arg#*=}" ;;
+    --container=*)     CONTAINER="${arg#*=}" ;;
+    *)                 echo "Unknown argument: $arg"; exit 1 ;;
   esac
 done
+
+# Validate deploy arguments
+if [[ $DEPLOY -eq 1 ]]; then
+  if [[ -z "$ZIM_DEST" ]]; then
+    echo -e "${RED}[ERROR]${NC} --deploy requires --zim-dest=/path/to/kiwix/library"
+    exit 1
+  fi
+  if [[ -z "$CONTAINER" ]]; then
+    echo -e "${RED}[ERROR]${NC} --deploy requires --container=<container_name>"
+    exit 1
+  fi
+fi
 
 RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'
 CYN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
@@ -215,16 +239,84 @@ print('  illustration.png created')
 deploy_instructions() {
   echo -e "${BOLD}Done. To deploy to Kiwix:${NC}"
   echo ""
-  echo -e "  1. Copy the ZIM file:"
-  echo -e "     ${CYN}cp \"${ZIM_OUT}\" /opt/project-nomad/storage/zim/${NC}"
+  echo    "  1. Copy the ZIM file to your Kiwix library directory:"
+  echo    "     cp field_manuals.zim /your/kiwix/library/"
   echo ""
-  echo -e "  2. Register with Kiwix:"
-  echo -e "     ${CYN}docker exec nomad_kiwix_server kiwix-manage \\${NC}"
-  echo -e "     ${CYN}  /data/kiwix-library.xml add \\${NC}"
-  echo -e "     ${CYN}  /data/field_manuals.zim${NC}"
+  echo    "  2. Set correct ownership (use the container's uid):"
+  echo    "     KIWIX_UID=\$(sudo docker exec <kiwix_container> id -u)"
+  echo    "     sudo chown \$KIWIX_UID:\$KIWIX_UID /your/kiwix/library/field_manuals.zim"
+  echo    "     sudo chown \$KIWIX_UID:\$KIWIX_UID /your/kiwix/library/kiwix-library.xml"
   echo ""
-  echo -e "  3. Restart the container:"
-  echo -e "     ${CYN}docker restart nomad_kiwix_server${NC}"
+  echo    "  3. Register with Kiwix:"
+  echo    "     sudo docker exec -u \$KIWIX_UID <kiwix_container> kiwix-manage \\"
+  echo    "       /data/kiwix-library.xml add \\"
+  echo    "       /data/field_manuals.zim"
+  echo ""
+  echo    "  4. Restart the Kiwix container:"
+  echo    "     sudo docker restart <kiwix_container>"
+  echo ""
+  echo    "  Or run this script with --deploy to do all of the above automatically:"
+  echo    "     ./install.sh --skip-download --deploy \\"
+  echo    "       --zim-dest=/your/kiwix/library \\"
+  echo    "       --container=<kiwix_container>"
+  echo ""
+}
+
+deploy() {
+  local zim_name
+  zim_name=$(basename "$ZIM_OUT")
+  local dest_zim="${ZIM_DEST}/${zim_name}"
+  local dest_xml="${ZIM_DEST}/kiwix-library.xml"
+
+  echo -e "${BOLD}Step 3: Deploying to Kiwix${NC}"
+  echo -e "  ${CYN}Container :${NC} ${CONTAINER}"
+  echo -e "  ${CYN}Library   :${NC} ${ZIM_DEST}"
+  echo ""
+
+  # Check container is running
+  if ! sudo docker inspect "$CONTAINER" &>/dev/null; then
+    echo -e "  ${RED}[ERROR]${NC}  Container '${CONTAINER}' not found."
+    exit 1
+  fi
+
+  # Get the uid the container runs as
+  KIWIX_UID=$(sudo docker exec "$CONTAINER" id -u)
+  echo -e "  ${YLW}[INFO]${NC}  Container runs as uid ${KIWIX_UID}"
+
+  # Copy ZIM to destination
+  echo -e "  ${YLW}[INFO]${NC}  Copying $(basename "$ZIM_OUT") to ${ZIM_DEST}..."
+  sudo cp "$ZIM_OUT" "$dest_zim"
+
+  # Fix ownership on ZIM and library XML
+  echo -e "  ${YLW}[INFO]${NC}  Setting ownership to ${KIWIX_UID}:${KIWIX_UID}..."
+  sudo chown "${KIWIX_UID}:${KIWIX_UID}" "$dest_zim"
+  if [[ -f "$dest_xml" ]]; then
+    sudo chown "${KIWIX_UID}:${KIWIX_UID}" "$dest_xml"
+  fi
+
+  # Remove existing entry if present (ignore errors if not found)
+  echo -e "  ${YLW}[INFO]${NC}  Removing any existing entry from Kiwix library..."
+  EXISTING_ID=$(sudo docker exec -u "$KIWIX_UID" "$CONTAINER" \
+    kiwix-manage /data/kiwix-library.xml show 2>/dev/null | \
+    grep -B1 "name:.*field_manuals" | grep "^id:" | awk '{print $2}' || true)
+
+  if [[ -n "$EXISTING_ID" ]]; then
+    sudo docker exec -u "$KIWIX_UID" "$CONTAINER" \
+      kiwix-manage /data/kiwix-library.xml remove "$EXISTING_ID"
+    echo -e "  ${YLW}[INFO]${NC}  Removed existing entry: ${EXISTING_ID}"
+  fi
+
+  # Add new ZIM to library
+  echo -e "  ${YLW}[INFO]${NC}  Registering with Kiwix library..."
+  sudo docker exec -u "$KIWIX_UID" "$CONTAINER" \
+    kiwix-manage /data/kiwix-library.xml add "/data/${zim_name}"
+
+  # Restart container
+  echo -e "  ${YLW}[INFO]${NC}  Restarting ${CONTAINER}..."
+  sudo docker restart "$CONTAINER"
+
+  echo ""
+  echo -e "  ${GRN}[OK]${NC}  Deployment complete. Kiwix is restarting."
   echo ""
 }
 
@@ -246,4 +338,8 @@ else
   echo ""
 fi
 
-deploy_instructions
+if [[ $DEPLOY -eq 1 ]]; then
+  deploy
+else
+  deploy_instructions
+fi
