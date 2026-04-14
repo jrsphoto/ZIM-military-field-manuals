@@ -175,8 +175,9 @@ build_zim() {
     exit 1
   fi
 
-  if [[ ! -f "${HTML_DIR}/illustration.png" ]]; then
-    echo -e "  ${YLW}[INFO]${NC}  illustration.png not found -- generating one..."
+  if [[ ! -f "${HTML_DIR}/assets/illustration.png" ]]; then
+    echo -e "  ${YLW}[INFO]${NC}  assets/illustration.png not found -- generating one..."
+    mkdir -p "${HTML_DIR}/assets"
     python3 -c "
 import struct, zlib
 
@@ -190,8 +191,8 @@ def png48(r, g, b):
     data += chunk(b'IEND', b'')
     return b'\x89PNG\r\n\x1a\n' + data
 
-open('${HTML_DIR}/illustration.png', 'wb').write(png48(74, 82, 64))
-print('  illustration.png created')
+open('${HTML_DIR}/assets/illustration.png', 'wb').write(png48(74, 82, 64))
+print('  assets/illustration.png created')
 "
   fi
 
@@ -211,7 +212,7 @@ print('  illustration.png created')
 
   zimwriterfs \
     -w index.html \
-    -I illustration.png \
+    -I assets/illustration.png \
     -l eng \
     -n "field_manuals" \
     -t "US Military Field Manuals" \
@@ -219,6 +220,7 @@ print('  illustration.png created')
     -L "A collection of ~180 US military field manuals covering tactics, survival, navigation, engineering, intelligence, special operations and more. Sourced from the Internet Archive." \
     -c "US Government" \
     -p "ProjectNomad" \
+    -a "_category:military;military;_ftindex:yes" \
     -v \
     "$HTML_DIR" \
     "$ZIM_OUT"
