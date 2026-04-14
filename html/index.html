@@ -1,345 +1,551 @@
-#!/usr/bin/env bash
-# =============================================================================
-# install.sh
-# Installer for the US Military Field Manuals offline archive.
-#
-# This script will:
-#   1. Check dependencies
-#   2. Download all PDFs from archive.org as a single zip
-#   3. Extract PDFs into html/pdfs/
-#   4. Build the ZIM file
-#   5. Print deployment instructions
-#
-# Place this script in the "Field Manuals" root folder alongside html/.
-#
-# Usage:
-#   chmod +x install.sh
-#   ./install.sh
-#
-# To skip the download (if you already have the PDFs):
-#   ./install.sh --skip-download
-#
-# To skip the ZIM build (just download the PDFs):
-#   ./install.sh --skip-zim
-#
-# To automatically deploy to a local Kiwix container after building:
-#   ./install.sh --deploy --zim-dest /path/to/kiwix/library --container nomad_kiwix_server
-#
-# All options can be combined:
-#   ./install.sh --skip-download --deploy --zim-dest /opt/project-nomad/storage/zim --container nomad_kiwix_server
-# =============================================================================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FIELD MANUAL ARCHIVE // PROJECT NOMAD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Oswald:wght@400;600;700&family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --od-green: #4a5240;
+    --od-dark: #2a2e24;
+    --od-light: #6b7560;
+    --tan-light: #e8ddc8;
+    --amber: #d4820a;
+    --amber-bright: #f0a020;
+    --red: #8b1a1a;
+    --red-bright: #c0392b;
+    --black: #0d0e0b;
+    --scan-line: rgba(0,0,0,0.03);
+    --glow: 0 0 8px rgba(212,130,10,0.4);
+  }
 
-set -euo pipefail
+  * { margin: 0; padding: 0; box-sizing: border-box; }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HTML_DIR="${SCRIPT_DIR}/html"
-PDF_DIR="${HTML_DIR}/pdfs"
-ZIM_OUT="${SCRIPT_DIR}/field_manuals.zim"
-TMP_ZIP="${SCRIPT_DIR}/manuals_download.zip"
+  body {
+    background: var(--black);
+    color: var(--tan-light);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
 
-ARCHIVE_URL="https://archive.org/compress/military-field-manuals-and-guides/formats=TEXT%20PDF,IMAGE%20CONTAINER%20PDF,ITEM%20TILE,ARCHIVE%20BITTORRENT,METADATA"
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, var(--scan-line) 0px, var(--scan-line) 1px, transparent 1px, transparent 3px);
+    pointer-events: none;
+    z-index: 1000;
+  }
 
-SKIP_DOWNLOAD=0
-SKIP_ZIM=0
-DEPLOY=0
-ZIM_DEST=""
-CONTAINER=""
+  /* HEADER */
+  header { background: var(--od-dark); border-bottom: 3px solid var(--amber); }
 
-for arg in "$@"; do
-  case $arg in
-    --skip-download)   SKIP_DOWNLOAD=1 ;;
-    --skip-zim)        SKIP_ZIM=1 ;;
-    --deploy)          DEPLOY=1 ;;
-    --zim-dest=*)      ZIM_DEST="${arg#*=}" ;;
-    --container=*)     CONTAINER="${arg#*=}" ;;
-    *)                 echo "Unknown argument: $arg"; exit 1 ;;
-  esac
-done
+  .header-stripe {
+    height: 6px;
+    background: repeating-linear-gradient(90deg,
+      var(--od-green) 0px, var(--od-green) 20px,
+      var(--amber) 20px, var(--amber) 22px,
+      var(--od-green) 22px, var(--od-green) 42px,
+      var(--black) 42px, var(--black) 44px);
+  }
 
-# Validate deploy arguments
-if [[ $DEPLOY -eq 1 ]]; then
-  if [[ -z "$ZIM_DEST" ]]; then
-    echo -e "${RED}[ERROR]${NC} --deploy requires --zim-dest=/path/to/kiwix/library"
-    exit 1
-  fi
-  if [[ -z "$CONTAINER" ]]; then
-    echo -e "${RED}[ERROR]${NC} --deploy requires --container=<container_name>"
-    exit 1
-  fi
-fi
+  .header-inner {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 2rem;
+    padding: 1.5rem 2rem;
+  }
 
-RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'
-CYN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+  .header-emblem {
+    width: 80px; height: 80px;
+    border: 2px solid var(--amber);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2rem;
+    background: radial-gradient(circle, var(--od-green) 0%, var(--od-dark) 100%);
+    box-shadow: var(--glow), inset 0 0 20px rgba(0,0,0,0.5);
+    animation: emblem-pulse 4s ease-in-out infinite;
+    flex-shrink: 0;
+  }
 
-banner() {
-  echo -e "${YLW}"
-  echo "  ╔══════════════════════════════════════════════════════════════╗"
-  echo "  ║        FIELD MANUAL ARCHIVE -- INSTALLER                     ║"
-  echo "  ║        PROJECT NOMAD // KIWIX OFFLINE SYSTEM                 ║"
-  echo "  ╚══════════════════════════════════════════════════════════════╝"
-  echo -e "${NC}"
+  @keyframes emblem-pulse {
+    0%,100% { box-shadow: var(--glow), inset 0 0 20px rgba(0,0,0,0.5); }
+    50%      { box-shadow: 0 0 20px rgba(212,130,10,0.7), inset 0 0 20px rgba(0,0,0,0.5); }
+  }
+
+  .header-title { text-align: center; }
+
+  .header-classification {
+    font-size: 0.65rem; color: var(--amber);
+    letter-spacing: 0.3em; text-transform: uppercase; margin-bottom: 0.3rem; opacity: 0.8;
+  }
+
+  h1 {
+    font-family: 'Oswald', sans-serif; font-size: 2.8rem; font-weight: 700;
+    letter-spacing: 0.15em; color: var(--tan-light);
+    text-shadow: 0 0 30px rgba(212,130,10,0.3); line-height: 1; text-transform: uppercase;
+  }
+  h1 span { color: var(--amber-bright); }
+
+  .header-subtitle { font-size: 0.75rem; letter-spacing: 0.25em; color: var(--od-light); margin-top: 0.4rem; }
+
+  .header-stats { text-align: right; font-size: 0.7rem; color: var(--od-light); line-height: 1.8; }
+  .header-stats .stat-val { color: var(--amber-bright); font-size: 1.1rem; display: block; }
+
+  /* CONTROL BAR */
+  .control-bar {
+    background: var(--od-dark); border-bottom: 1px solid var(--od-green);
+    padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1.5rem;
+    flex-wrap: wrap; position: sticky; top: 0; z-index: 100;
+  }
+
+  .control-label { font-size: 0.65rem; letter-spacing: 0.2em; color: var(--amber); text-transform: uppercase; white-space: nowrap; }
+
+  .search-wrapper { position: relative; flex: 1; min-width: 200px; max-width: 500px; }
+  .search-wrapper::before {
+    content: '>>>'; position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    color: var(--amber); font-size: 0.7rem; pointer-events: none;
+  }
+
+  #search {
+    width: 100%; background: rgba(0,0,0,0.4); border: 1px solid var(--od-green);
+    color: var(--tan-light); font-family: 'Share Tech Mono', monospace; font-size: 0.85rem;
+    padding: 0.5rem 0.75rem 0.5rem 2.5rem; outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  #search:focus { border-color: var(--amber); box-shadow: var(--glow); }
+  #search::placeholder { color: var(--od-light); }
+
+  .filter-btns { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+  .filter-btn {
+    background: transparent; border: 1px solid var(--od-green); color: var(--od-light);
+    font-family: 'Share Tech Mono', monospace; font-size: 0.65rem; letter-spacing: 0.1em;
+    padding: 0.3rem 0.6rem; cursor: pointer; text-transform: uppercase; transition: all 0.15s;
+  }
+  .filter-btn:hover, .filter-btn.active { background: var(--amber); border-color: var(--amber); color: var(--black); }
+
+  .result-count { margin-left: auto; font-size: 0.7rem; color: var(--od-light); white-space: nowrap; }
+  .result-count span { color: var(--amber-bright); }
+
+  /* MAIN */
+  main { padding: 1.5rem 2rem; max-width: 1600px; margin: 0 auto; }
+
+  .section-header {
+    display: flex; align-items: center; gap: 1rem;
+    margin: 2rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--od-green);
+  }
+  .section-header::before { content: ''; display: block; width: 4px; height: 1.5rem; background: var(--amber); }
+  .section-header h2 { font-family: 'Oswald', sans-serif; font-size: 0.9rem; letter-spacing: 0.3em; color: var(--amber); text-transform: uppercase; font-weight: 600; }
+  .section-header .count { font-size: 0.7rem; color: var(--od-light); }
+
+  .manual-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1px; background: var(--od-dark); border: 1px solid var(--od-green);
+  }
+
+  .manual-card {
+    background: var(--black); padding: 1rem; position: relative;
+    display: flex; flex-direction: column; gap: 0.4rem;
+    overflow: hidden; transition: background 0.15s;
+  }
+  .manual-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--od-green); transition: background 0.15s, width 0.15s;
+  }
+  .manual-card:hover { background: rgba(74,82,64,0.2); }
+  .manual-card:hover::before { background: var(--amber); width: 4px; }
+  .manual-card.hidden { display: none; }
+
+  .card-designator { font-size: 0.65rem; color: var(--amber); letter-spacing: 0.15em; text-transform: uppercase; font-weight: bold; }
+
+  .card-title { font-family: 'Oswald', sans-serif; font-size: 0.95rem; font-weight: 600; color: var(--tan-light); line-height: 1.3; text-transform: uppercase; }
+
+  .card-meta { display: flex; gap: 0.75rem; align-items: center; margin-top: 0.2rem; }
+
+  .card-branch { font-size: 0.6rem; letter-spacing: 0.15em; padding: 0.15rem 0.4rem; border: 1px solid; text-transform: uppercase; }
+  .branch-army  { border-color: var(--amber); color: var(--amber); }
+  .branch-usmc  { border-color: #6699cc; color: #6699cc; }
+  .branch-navy  { border-color: #4488bb; color: #4488bb; }
+  .branch-af    { border-color: #8888cc; color: #8888cc; }
+  .branch-joint { border-color: var(--od-light); color: var(--od-light); }
+  .branch-other { border-color: #888; color: #888; }
+
+  .card-category { font-size: 0.6rem; color: var(--od-light); letter-spacing: 0.1em; text-transform: uppercase; }
+
+  .card-actions { display: flex; gap: 0.4rem; margin-top: 0.3rem; flex-wrap: wrap; }
+
+  .card-btn {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-size: 0.65rem; font-family: 'Share Tech Mono', monospace;
+    text-decoration: none; border: 1px solid; padding: 0.25rem 0.55rem;
+    cursor: pointer; background: transparent; transition: all 0.15s;
+    letter-spacing: 0.05em; text-transform: uppercase;
+  }
+
+  .card-btn-view { color: #7ec8a0; border-color: #3a6e52; }
+  .card-btn-view:hover { background: rgba(126,200,160,0.12); border-color: #7ec8a0; }
+
+  /* FOOTER */
+  footer {
+    border-top: 3px solid var(--amber); background: var(--od-dark);
+    padding: 1.5rem 2rem; text-align: center; font-size: 0.65rem;
+    color: var(--od-light); letter-spacing: 0.15em; text-transform: uppercase; line-height: 2;
+  }
+  footer .footer-stamp {
+    font-family: 'Special Elite', cursive; font-size: 1.2rem; color: var(--red);
+    display: block; letter-spacing: 0.4em; transform: rotate(-1deg); margin-bottom: 0.5rem;
+  }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .cursor::after { content: '_'; animation: blink 1s step-end infinite; color: var(--amber); }
+
+  #no-results {
+    display: none; text-align: center; padding: 4rem 2rem;
+    color: var(--red-bright); font-size: 1rem; letter-spacing: 0.3em; text-transform: uppercase;
+  }
+
+  @media (max-width: 768px) {
+    .header-inner { grid-template-columns: auto 1fr; }
+    .header-stats { display: none; }
+    h1 { font-size: 1.8rem; }
+    main { padding: 1rem; }
+    .control-bar { padding: 0.5rem 1rem; }
+    .manual-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-stripe"></div>
+  <div class="header-inner">
+    <div class="header-emblem">&#9733;</div>
+    <div class="header-title">
+      <div class="header-classification">// UNCLASSIFIED // FOR OFFICIAL USE ONLY //</div>
+      <h1>FIELD MANUAL <span>ARCHIVE</span></h1>
+      <div class="header-subtitle">PROJECT NOMAD // OFFLINE REFERENCE SYSTEM // KIWIX COMPATIBLE</div>
+    </div>
+    <div class="header-stats">
+      <div>TOTAL DOCUMENTS</div>
+      <span class="stat-val" id="total-count">--</span>
+      <div>VISIBLE</div>
+      <span class="stat-val" id="visible-count">--</span>
+      <div>SOURCE: ARCHIVE.ORG</div>
+    </div>
+  </div>
+</header>
+
+<div class="control-bar">
+  <span class="control-label">SEARCH:</span>
+  <div class="search-wrapper">
+    <input type="text" id="search" placeholder="designator or keyword..." autocomplete="off" spellcheck="false">
+  </div>
+  <span class="control-label">FILTER:</span>
+  <div class="filter-btns" id="filter-btns">
+    <button class="filter-btn active" data-filter="all">ALL</button>
+    <button class="filter-btn" data-filter="army">ARMY</button>
+    <button class="filter-btn" data-filter="usmc">USMC</button>
+    <button class="filter-btn" data-filter="navy">NAVY</button>
+    <button class="filter-btn" data-filter="joint">JOINT</button>
+    <button class="filter-btn" data-filter="other">OTHER</button>
+  </div>
+  <span class="result-count"><span id="shown-count">--</span> of <span id="total-count2">--</span> docs</span>
+</div>
+
+<main id="main-content">
+  <div id="no-results">// NO RECORDS FOUND //</div>
+</main>
+
+<footer>
+  <span class="footer-stamp">UNCLASSIFIED</span>
+  PROJECT NOMAD // FIELD MANUAL ARCHIVE // SOURCE: INTERNET ARCHIVE<br>
+  ALL DOCUMENTS ARE PUBLIC DOMAIN GOVERNMENT PUBLICATIONS<br>
+  FOR OFFLINE REFERENCE USE // KIWIX SERVER COMPATIBLE<br>
+  <span class="cursor">SYSTEM READY</span>
+</footer>
+
+<script>
+// Change to ./pdfs/ after running download_manuals.sh locally
+const BASE = 'https://archive.org/download/military-field-manuals-and-guides/';
+
+const manuals = [
+  // ==================== U.S. ARMY ====================
+  { id:'FM 21-76',      title:'Army Survival Manual',                                        branch:'army',  cat:'Survival',    file:'FM%2021-76%20Army%20Survival%20Manual.pdf' },
+  { id:'FM 21-75',      title:'Scouting, Patrolling, and Sniping [1944]',                    branch:'army',  cat:'Infantry',    file:'FM%2021-75%20Scouting%2C%20Patrolling%2C%20and%20Sniping%20%5B1944%5D.pdf' },
+  { id:'FM 21-75',      title:'Combat Skills of the Soldier',                                branch:'army',  cat:'Infantry',    file:'FM21-75%20Combat%20Skills%20of%20the%20Soldier.pdf' },
+  { id:'FM 21-150',     title:'Combatives',                                                  branch:'army',  cat:'Combat',      file:'Fm21-150Combatives.pdf' },
+  { id:'FM 3-25.150',   title:'Combatives [2002]',                                           branch:'army',  cat:'Combat',      file:'FM%203-25.150%20%28FM%2021-150%29%20Combatives%20%5B2002%5D.pdf' },
+  { id:'FM 21-20',      title:'Physical Fitness',                                            branch:'army',  cat:'Training',    file:'Fm21-20PhysicalFitness.pdf' },
+  { id:'FM 7-22',       title:'Holistic Health and Fitness',                                 branch:'army',  cat:'Training',    file:'FM%207-22%20-%20Holistic%20Health%20and%20Fitness.pdf' },
+  { id:'FM 7-0',        title:'Training for Full Spectrum Operations',                       branch:'army',  cat:'Training',    file:'FM%207-0%20Training%20for%20Full%20Spectrum%20Operations.pdf' },
+  { id:'FM 21-26',      title:'Map Reading and Land Navigation 1993',                        branch:'army',  cat:'Navigation',  file:'Fm21-26MapReadingAndLandNavigation1993.pdf' },
+  { id:'FM 3-25.26',    title:'Map Reading and Land Navigation',                             branch:'army',  cat:'Navigation',  file:'FM%203-25.26%20Map%20Reading%20and%20Land%20Navigation.pdf' },
+  { id:'FM 3-25.26',    title:'Map Reading and Land Navigation (alt)',                       branch:'army',  cat:'Navigation',  file:'Fm3-25.26MapReadingAndLandNaviagtion.pdf' },
+  { id:'FM 21-30',      title:'Conventional Signs, Military Symbols and Abbreviations',      branch:'army',  cat:'Reference',   file:'Fm21-30ConventionalSignsMilitarySymbolsAndAbbreviations.pdf' },
+  { id:'FM 23-10',      title:'Sniper Training [1994]',                                      branch:'army',  cat:'Weapons',     file:'FM%2023-10%20Sniper%20Training%20%5B1994%5D.pdf' },
+  { id:'FM 23-10',      title:'Camouflage [1990]',                                           branch:'army',  cat:'Tactics',     file:'FM%2023-10%20Camouflage%20%5B1990%5D.pdf' },
+  { id:'FM 23-10',      title:'Camouflage [14 Nov 1990]',                                    branch:'army',  cat:'Tactics',     file:'FM%2023-10%20Camouflage%20%5B14%20November%201990%5D.pdf' },
+  { id:'FM 20-3',       title:'Camouflage, Concealment and Decoys Pt.1',                     branch:'army',  cat:'Tactics',     file:'Fm20-3CamouflageConcealmentAndDecoysPart1.pdf' },
+  { id:'FM 5-20C',      title:'Camouflage for Engineers',                                    branch:'army',  cat:'Engineer',    file:'FM%205-20C%20Camouflage%20For%20Engineers.pdf' },
+  { id:'FM 3-34.230',   title:'Topographic Operations',                                      branch:'army',  cat:'Engineer',    file:'FM%203-34.230%20Topographic%20Operations.pdf' },
+  { id:'FM 5-33',       title:'Terrain Analysis',                                            branch:'army',  cat:'Engineer',    file:'FM%205-33%20Terrain%20Analysis.pdf' },
+  { id:'FM 5-34',       title:'Engineer Field Data',                                         branch:'army',  cat:'Engineer',    file:'FM%205-34%20Engineer%20Field%20Data.pdf' },
+  { id:'FM 5-15',       title:'Field Fortifications',                                        branch:'army',  cat:'Engineer',    file:'FM%205-15%20Field%20Fortifications.pdf' },
+  { id:'FM 5-103',      title:'Survivability',                                               branch:'army',  cat:'Engineer',    file:'FM%205-103%20Survivability.pdf' },
+  { id:'FM 5-170',      title:'Engineer Recon',                                              branch:'army',  cat:'Engineer',    file:'FM%205-170%20Engineer%20Recon.pdf' },
+  { id:'FM 5-170',      title:'Engineer Reconnaissance (alt)',                               branch:'army',  cat:'Engineer',    file:'FM%205-170%20Engineer%20Reconnaissance.pdf' },
+  { id:'FM 3-21.38',    title:'Pathfinder Operations',                                       branch:'army',  cat:'Infantry',    file:'FM%203-21.38%20Pathfinder%20Ops.pdf' },
+  { id:'FM 3-21.38',    title:'Pathfinder Operations (alt)',                                 branch:'army',  cat:'Infantry',    file:'Army-fm3-21x38-Pathfinder-Operations.pdf' },
+  { id:'FM 21-50',      title:'Ranger Training and Ranger Operations',                       branch:'army',  cat:'Special Ops', file:'Fm21-50RangerTrainingAndRangerOperations.pdf' },
+  { id:'FM 7-85',       title:'Ranger Unit Operations',                                      branch:'army',  cat:'Special Ops', file:'Fm7-85RangerUnitOperations.pdf' },
+  { id:'FM RANGER HB',  title:'US Ranger Handbook',                                          branch:'army',  cat:'Special Ops', file:'US%20Ranger%20Handbook.pdf' },
+  { id:'FM RANGER HB',  title:'Ranger Handbook (alt)',                                       branch:'army',  cat:'Special Ops', file:'ranger.pdf' },
+  { id:'FM 7-93',       title:'Long-Range Surveillance',                                     branch:'army',  cat:'Recon',       file:'Fm7-93Long-rangeSurveillance.pdf' },
+  { id:'FM 3-55.93',    title:'Long-Range Surveillance Unit Operations',                     branch:'army',  cat:'Recon',       file:'FM%203-55.93%20Long-Range%20Surveillance%20Unit%20Operations.pdf' },
+  { id:'FM 17-98',      title:'Scout Platoon',                                               branch:'army',  cat:'Recon',       file:'Fm17-98ScoutPlatoon.pdf' },
+  { id:'ATP 3-20.98',   title:'Scout Platoon [2019]',                                        branch:'army',  cat:'Recon',       file:'ATP%203-20.98%20Scout%20Platoon%20%5B2019%5D.pdf' },
+  { id:'ATP 3-20.98',   title:'Scout Platoon [2019] ARN',                                    branch:'army',  cat:'Recon',       file:'ARN19886-ATP_3-20.98-000-WEB-1.pdf' },
+  { id:'FM 3-19.30',    title:'Physical Security [2001]',                                    branch:'army',  cat:'Security',    file:'FM%203-19.30%20Physical%20Security%20%5B2001%5D.pdf' },
+  { id:'FM 19-30',      title:'Physical Security (legacy)',                                  branch:'army',  cat:'Security',    file:'FM_19_30.pdf' },
+  { id:'FM 3-39',       title:'Military Police Operations',                                  branch:'army',  cat:'Security',    file:'FM%203-39%20Military%20Police%20Operations.pdf' },
+  { id:'FM 3-06',       title:'Urban Operations',                                            branch:'army',  cat:'Tactics',     file:'FM%203-06%20Urban%20Operations.pdf' },
+  { id:'FM 3-06.11',    title:'Combined Arms Operations Urban Terrain',                      branch:'army',  cat:'Tactics',     file:'FM%203-06.11%20Combined%20Arms%20Operations%20Urban%20Terrain.pdf' },
+  { id:'FM 3-90',       title:'Tactics',                                                     branch:'army',  cat:'Tactics',     file:'Fm3-90Tactics.pdf' },
+  { id:'FM 3-90-1',     title:'Offense and Defense Vol.1',                                   branch:'army',  cat:'Tactics',     file:'FM3-90-1%20Offense%20and%20Defense%20Vol1.pdf' },
+  { id:'FM 3-90.2',     title:'Reconnaissance, Security, and Tactical Enabling Tasks',       branch:'army',  cat:'Tactics',     file:'FM_3_90_2_Reconnaissance%2C_Security%2C_and_Tactical_Enabling_Tasks.pdf' },
+  { id:'FM 3-0',        title:'Operations',                                                  branch:'army',  cat:'Doctrine',    file:'Fm_3_0_Operations.pdf' },
+  { id:'FM 1',          title:'The Army',                                                    branch:'army',  cat:'Doctrine',    file:'Fm12005TheArmy.pdf' },
+  { id:'FM 1-01',       title:'Generating Force Support for Operations',                     branch:'army',  cat:'Doctrine',    file:'Fm1-01GeneratingForceSupportForOperations.pdf' },
+  { id:'FM 1-20',       title:'Military History Operations',                                 branch:'army',  cat:'Reference',   file:'Fm1-20MilitaryHistoryOperations.pdf' },
+  { id:'FM 2-0',        title:'Intelligence',                                                branch:'army',  cat:'Intel',       file:'Fm2-0Intelligence.pdf' },
+  { id:'FM 2-22.3',     title:'Human Intelligence Collector Operations',                     branch:'army',  cat:'Intel',       file:'Fm2-22.3HumanIntelligenceCollectorOperations.pdf' },
+  { id:'FM 34-8',       title:"Combat Commander's Handbook on Intelligence",                 branch:'army',  cat:'Intel',       file:'FM%2034-8%20Combat%20Commanders%20Handbook%20on%20Intelligence.pdf' },
+  { id:'FM 34-2',       title:'Counter Reconnaissance 1991',                                 branch:'army',  cat:'Intel',       file:'UsArmyFm34-2CounterReconnaisance1991.pdf' },
+  { id:'FM 34-45',      title:'EW Tactics, Techniques & Procedures for Electronic Attack',   branch:'army',  cat:'EW',          file:'FM_34-45_Tactics_Techniques_%26_Procedures_For_Electronic%20Attack.pdf' },
+  { id:'FM 34-40',      title:'Communications Jamming',                                      branch:'army',  cat:'EW',          file:'FM_34_40_Communications_Jamming.pdf' },
+  { id:'FM 3-05',       title:'Army Special Operations Forces',                              branch:'army',  cat:'Special Ops', file:'Fm3-05ArmySpecialOperationsForces.pdf' },
+  { id:'FM 3-05.102',   title:'Special Operations Forces Intelligence 2001',                 branch:'army',  cat:'Special Ops', file:'UsArmyFm3-05.102SpecialOperationsForcesIntelligence2001.pdf' },
+  { id:'FM 3-05.222',   title:'Special Forces Sniper Training & Employment',                 branch:'army',  cat:'Special Ops', file:'Fm3-05.222SpecialForcesSniperTrainingEmployment.pdf' },
+  { id:'FM 3-05.222',   title:'Special Forces Sniper Training 2003 (alt)',                   branch:'army',  cat:'Special Ops', file:'FM_3_05_222_Special_Forces_Sniper_Training_%26_Employment_2003.pdf' },
+  { id:'FM 31-15',      title:'Operations Against Irregular Forces [1961]',                  branch:'army',  cat:'COIN',        file:'FM%2031-15%20Operations%20Against%20Irregular%20Forces%20%5B1961%5D.pdf' },
+  { id:'FM 31-70',      title:'Basic Cold Weather Manual',                                   branch:'army',  cat:'Survival',    file:'FM%2031-70%20Basic%20Cold%20Weather%20Manual.pdf' },
+  { id:'FM 72-20',      title:'Jungle Warfare [1944]',                                       branch:'army',  cat:'Survival',    file:'FM%2072-20%20Jungle%20Warfare%20%5B1944%5D.pdf' },
+  { id:'FM 3-97.6',     title:'Mountain Operations [2000]',                                  branch:'army',  cat:'Survival',    file:'FM%203-97.6%20%2890-6%29%20Mountain%20Operations%20%5B2000%5D.pdf' },
+  { id:'FM 8-51',       title:'Combat Stress Control in a Theater of Operations',            branch:'army',  cat:'Medical',     file:'FM%208-51%20Combat%20Stress%20Control%20in%20a%20Theater%20of%20Operations.pdf' },
+  { id:'FM 3-11',       title:'Flame, Riot Control Agents and Herbicide Operations',         branch:'army',  cat:'CBRN',        file:'Fm3-11FlameRiotControlAgentsAndHerbicideOperations.pdf' },
+  { id:'FM 3-34.119',   title:'IED Defeat',                                                  branch:'army',  cat:'EOD',         file:'FM-3-34-119-IED-Defeat.pdf' },
+  { id:'FM 5-31',       title:'Boobytraps',                                                  branch:'army',  cat:'EOD',         file:'Fm5-31Boobytraps.pdf' },
+  { id:'FM 5-20',       title:'Engineer 1968',                                               branch:'army',  cat:'Engineer',    file:'FM5-201968.pdf' },
+  { id:'FM 7-14',       title:'Combating Terrorism',                                         branch:'army',  cat:'COIN',        file:'Fm7-14CombatingTerrorism.pdf' },
+  { id:'FM 7-41',       title:'Mine and Tunnel Dog Training and Employment',                 branch:'army',  cat:'Engineer',    file:'Fm7-41MineAndTunnelDogTrainingAndEmployment.pdf' },
+  { id:'FM 7-98',       title:'Operations in Low Intensity Conflict',                        branch:'army',  cat:'COIN',        file:'FM_7_98_OPs_Low_Intensity_Conflict.pdf' },
+  { id:'FM 90-8',       title:'Counterguerilla Operations',                                  branch:'army',  cat:'COIN',        file:'Fm90-8CounterguerrillaOperations.pdf' },
+  { id:'FM 100-20',     title:'Military Operations in Low Intensity Conflict',               branch:'army',  cat:'COIN',        file:'Fm100-20MilitaryOperationsInLowIntensityConflict.pdf' },
+  { id:'FM 3-24',       title:'Counterinsurgency 2006',                                      branch:'army',  cat:'COIN',        file:'UsArmyFm3-24CounterInsurgency2006.pdf' },
+  { id:'FM 30-104',     title:'Aggressor Handbook on Insurgent War [1967]',                  branch:'army',  cat:'COIN',        file:'FM30-104AggressorHandbookonInsurgentWar%5B1967-09-22%5D%201.pdf' },
+  { id:'FM PSYOP',      title:'PSYOPS in Time of Military Conflict',                         branch:'army',  cat:'PSYOP',       file:'Psyops_In_Time_Of_Military_Conflict.pdf' },
+  { id:'FM 3-05.30',    title:'PSYOPS Leaders Guide 2005',                                   branch:'army',  cat:'PSYOP',       file:'UsArmyPsyopsPsychologicalOpsLeadersGuide2005.pdf' },
+  { id:'TC 23-14',      title:'Sniper Training & Employment [1989]',                         branch:'army',  cat:'Weapons',     file:'TC%2023-14%20Sniper%20Training%20%26%20Employment%20%5B1989%5D.pdf' },
+  { id:'TC 31-93.3',    title:'Paramilitary and Nonmilitary Organization and Tactics',       branch:'army',  cat:'COIN',        file:'TC_31_93_3_Paramilitary_And_Nonmilitary_Organization_And_Tactics.pdf' },
+  { id:'ATP 3-21.90',   title:'Tactical Employment of Mortars 2019',                         branch:'army',  cat:'Weapons',     file:'ATP_3_21_90_MCTP_3_01D_Tactical_Employment_of_Mortars_2019_pdf.pdf' },
+  { id:'ST 31-91B',     title:'Special Forces Medical Handbook 1982',                        branch:'army',  cat:'Medical',     file:'St31-91bUsArmySpecialForcesMedicalHandbook1982.pdf' },
+  { id:'TT 23-71-1',    title:'Principles of Quick Kill',                                    branch:'army',  cat:'Weapons',     file:'QuickKillTt23-71-1.pdf' },
+  { id:'TT 23-71-1',    title:'Principles of Quick Kill (alt)',                              branch:'army',  cat:'Weapons',     file:'Department_of_the_U_S_Army_Principles_of_a_Quick_Kill_23_71_1.pdf' },
+  { id:'SF CACHE',      title:'Special Forces Caching Techniques',                           branch:'army',  cat:'Special Ops', file:'Tc31-29aSpecialForcesCachingTechniques.pdf' },
+  { id:'SF CACHE',      title:'Special Forces Caching Techniques (alt)',                     branch:'army',  cat:'Special Ops', file:'Department_of_the_U_S_Army_U_S_Army_Special_Forces_Caching_Techniques.pdf' },
+  { id:'TM 10-275',     title:'TM 10-275',                                                   branch:'army',  cat:'Equipment',   file:'TM-10-275.pdf' },
+  { id:'TM 9-1330-200', title:'Grenades 1966',                                               branch:'army',  cat:'Weapons',     file:'TM-9-1330-200-grenades-1966.pdf' },
+  { id:'TM 31-210',     title:'Improvised Munitions Handbook',                               branch:'army',  cat:'EOD',         file:'Tm31-210ImprovisedMunitionsHandbook.pdf' },
+  { id:'TM 31-210',     title:'Improvised Munitions Handbook (alt)',                         branch:'army',  cat:'EOD',         file:'Improvised%20Munitions%20Handbook.pdf' },
+  { id:'TM 21-210',     title:'Improvised Munitions Handbook 1969',                          branch:'army',  cat:'EOD',         file:'TM_21_210_Improvised_Munitions_Handbook_1969_Department_of_the_Army.pdf' },
+  { id:'TM 9-1300-214', title:'Military Explosives',                                         branch:'army',  cat:'EOD',         file:'Tm9-1300-214MilitaryExplosives.pdf' },
+  { id:'SF UNCONVEN',   title:'Special Forces Guide to Unconventional Warfare',              branch:'army',  cat:'Special Ops', file:'US_Army_Special_Forces_Guide_to_Unconventional_Warfare_Department.pdf' },
+  { id:'FM RECON HB',   title:'Reconnaissance and Surveillance Handbook',                    branch:'army',  cat:'Recon',       file:'U_S_Army_Reconnaissance_and_Surveillance_Handbook_PDFDrive_.pdf' },
+  { id:'FM RECON',      title:'Recon and Surveillance Support 1991',                         branch:'army',  cat:'Recon',       file:'UsArmyReconAndSurveillanceSupport1991.pdf' },
+  { id:'FM NAV HB',     title:'Map Reading and Land Navigation Handbook',                    branch:'army',  cat:'Navigation',  file:'U_S_Army_Map_Reading_and_Land_Navigation_Handbook_PDFDrive_.pdf' },
+  { id:'FM INTEL',      title:'Intelligence 2004',                                           branch:'army',  cat:'Intel',       file:'UsArmyIntelligence2004.pdf' },
+  { id:'FM INTEL',      title:'Intelligence in Combating Terrorism 1998',                    branch:'army',  cat:'Intel',       file:'UsArmyIntelligenceInCombattingTerrorism1998.pdf' },
+  { id:'FM INTERROG',   title:'Interrogation Operations',                                    branch:'army',  cat:'Intel',       file:'InterrogationOperationsIt0606.pdf' },
+  { id:'FM INTERROG',   title:'Interrogation Approaches 1995',                               branch:'army',  cat:'Intel',       file:'UsArmyInterrogationApproaches1995.pdf' },
+  { id:'FM INTERROG',   title:'Interrogation Questioning Techniques 1997',                   branch:'army',  cat:'Intel',       file:'UsArmyInterrogationQuestioningTechniques1997.pdf' },
+  { id:'FM CHEM',       title:'Chemical Weapons and Munitions 1991',                         branch:'army',  cat:'CBRN',        file:'UsArmyChemicalWeaponsAndMunitions1991%201.pdf' },
+  { id:'FM CHEM',       title:'Chemical Weapons Tech Section VI 1997',                       branch:'army',  cat:'CBRN',        file:'UsArmyChemicalWeaponsTechSectionVi1997.pdf' },
+  { id:'FM CIVIL',      title:'Civil Disturbance Operations 2006',                           branch:'army',  cat:'Operations',  file:'UsArmyCivilDisturbanceOperations2006.pdf' },
+  { id:'FM COIN',       title:'Counterguerilla Operations 1986',                             branch:'army',  cat:'COIN',        file:'UsArmyCounterguerillaOperations1986.pdf' },
+  { id:'FM COIN',       title:'Vietnam Guerrilla Warfare Special Ops 1961',                  branch:'army',  cat:'COIN',        file:'UsArmyVietnamGuerrillaWarfareSpecialOps1961.pdf' },
+  { id:'FM EW',         title:'Tactics Electronic Attack 2000',                              branch:'army',  cat:'EW',          file:'UsArmyTacticsElectronicAttack2000.pdf' },
+  { id:'FM URBAN',      title:'Training for Urban Operations 2002',                          branch:'army',  cat:'Tactics',     file:'UsArmyTrainingForUrbanOperations2002.pdf' },
+  { id:'FM URBAN',      title:'Urban Operations 2006',                                       branch:'army',  cat:'Tactics',     file:'UsArmyUrbanOperations2006.pdf' },
+  { id:'FM GRENADES',   title:'Grenades and Pyrotechnic Signals 2002',                       branch:'army',  cat:'Weapons',     file:'UsArmyGrenadesAndPyrotechnicSignals2002.pdf' },
+  { id:'FM WEAP STD',   title:'Standards in Weapons Training (Spec Ops) 1997',              branch:'army',  cat:'Special Ops', file:'UsArmyStandardsInWeaponsTrainingForSpecOps1997.pdf' },
+  { id:'FM WEAP STD',   title:'Standards in Weapons Training (Spec Ops)',                   branch:'army',  cat:'Special Ops', file:'Standards%20in%20Weapons%20Training%20%28Special%20Operations%20Forces%29.pdf' },
+  { id:'FM LAW',        title:'LAW Rocket Operators Manual 1991',                            branch:'army',  cat:'Weapons',     file:'UsArmyLawRocketOperatorsManual1991.pdf' },
+  { id:'FM CAM SOP',    title:'Sigman Camouflage SOP',                                       branch:'army',  cat:'Tactics',     file:'Sigman-Camouflage-Sop.pdf' },
+  { id:'FM INDEX',      title:'Index of United States Army Field Manuals',                   branch:'army',  cat:'Reference',   file:'index_united_states_army_field_manuals.pdf' },
+  { id:'FM 3-21',       title:'Infantry FM 3-21',                                            branch:'army',  cat:'Infantry',    file:'12780683-fm3-21.pdf' },
+  { id:'FM 23-23',      title:'FM 23-23',                                                    branch:'army',  cat:'Weapons',     file:'fm23_23.pdf' },
+  { id:'FM CAV',        title:'Cavalry US Field Manual',                                     branch:'army',  cat:'Vehicles',    file:'343469732-Cavalry-US-Field-Manual.pdf' },
+  { id:'FM 1-112',      title:'Attack Helicopter Operations',                                branch:'army',  cat:'Aviation',    file:'392858580_Us_Army_Field_Manual_1_112_Attack_Helicopter_Operations.pdf' },
+  { id:'FM RECON CBT',  title:'Combat Recon Manual - Tips of the Trade 1995',                branch:'army',  cat:'Recon',       file:'Combat%20Recon%20Manual%20-%20Tips%20of%20the%20Trade%20-%201995.pdf' },
+  { id:'FM SNIPER CTR', title:'Counter Sniper Guide',                                        branch:'army',  cat:'Weapons',     file:'Counter%20Sniper%20Guide.pdf' },
+  { id:'FM NIGHT OPS',  title:'Small Unit Night Operations',                                 branch:'army',  cat:'Tactics',     file:'SmallUnitNightOperations.pdf' },
+  { id:'FM URBAN BLK',  title:'Block By Block: Challenges of Urban Operations',              branch:'army',  cat:'Tactics',     file:'Block%20By%20Block_Challenges%20Of%20Urban%20Operations.pdf' },
+  { id:'LAW OF WAR',    title:'Law of Land Warfare',                                         branch:'army',  cat:'Reference',   file:'TheLawOfLandWarfare.pdf' },
+  { id:'P 381-11',      title:'Viet Cong Boobytraps',                                        branch:'army',  cat:'EOD',         file:'P381-11VietCongBoobytraps.pdf' },
+  { id:'ARMY CBT HB',   title:'Official U.S. Army Combat Skills Handbook',                   branch:'army',  cat:'Infantry',    file:'The%20Official%20U.S.%20Army%20Combat%20Skills%20Handbook%20%28%20PDFDrive%20%29.pdf' },
+  { id:'ARMY SURV',     title:'Ultimate Guide to U.S. Army Survival Skills, Tactics & Techniques', branch:'army', cat:'Survival', file:'The%20Ultimate%20Guide%20to%20U.S.%20Army%20Survival%20Skills%2C%20Tactics%2C%20and%20Techniques%20%28%20PDFDrive%20%29.pdf' },
+  { id:'ARMY SURV',     title:'Ultimate Guide to U.S. Army Survival (alt)',                  branch:'army',  cat:'Survival',    file:'The_Ultimate_Guide_to_U_S_Army_Survival_Skills%2C_Tactics%2C_and_Techniques.pdf' },
+  { id:'ARMY DEMOL',    title:'U.S. Army Explosives and Demolitions Handbook',               branch:'army',  cat:'EOD',         file:'U.S.%20Army%20explosives%20and%20demolitions%20handbook%20%28%20PDFDrive%20%29.pdf' },
+  { id:'FM 3-11.3',     title:'Multiservice CBRN Tactics, Techniques and Procedures',        branch:'joint', cat:'CBRN',        file:'Fm3_11_3MultiserviceTacticsTechniquesAndProceduresForChemicalBi.pdf' },
+  { id:'FM 3-31.1',     title:'Army and Marine Corps Integration in Joint Operations',        branch:'joint', cat:'Doctrine',    file:'FM_3_31_1_Army_and_Marine_Corps_Integration_in_Joint_Operations.pdf' },
+
+  // ==================== U.S. MARINE CORPS ====================
+  { id:'MCWP 3-12',     title:'Marine Corps Tank Employment',                                branch:'usmc',  cat:'Vehicles',    file:'%28Vehicles%29%20MCWP%203-12%20Marine%20Corps%20Tank%20Employment.pdf' },
+  { id:'MCWP 3-31.5',   title:'Ship-to-Shore Movement',                                      branch:'usmc',  cat:'Amphibious',  file:'US-Marine-Corps-Ship-To-Shore-Movement-MCWP-3-31-5.pdf' },
+  { id:'FMFM 1',        title:'Warfighting',                                                 branch:'usmc',  cat:'Doctrine',    file:'FMFM%201%20-%20Warfighting.pdf' },
+  { id:'FMFM 1-3B',     title:'Sniping',                                                     branch:'usmc',  cat:'Weapons',     file:'Fmfm1-3bSniping.pdf' },
+  { id:'FMFM 6-4',      title:'Marine Rifle Company/Platoon',                                branch:'usmc',  cat:'Infantry',    file:'FMFM%206-4%20Marine%20Rifle%20Company-Platoon.pdf' },
+  { id:'FMFRP 12-18',   title:'Mao Tse-tung On Guerrilla Warfare',                           branch:'usmc',  cat:'COIN',        file:'Fmfrp12-18MaoTse-tungOnGuerrillaWarfare.pdf' },
+  { id:'FMFRP 12-43',   title:'Mines and Boobytraps',                                        branch:'usmc',  cat:'EOD',         file:'Fmfrp12-43MinesAndBoobytraps.pdf' },
+  { id:'FMFRP 12-80',   title:'Kill or Get Killed',                                          branch:'usmc',  cat:'Combat',      file:'Fmfrp12-80KillOrGetKilled.pdf' },
+  { id:'MCRP 3-02C',    title:'Combat Water Survival 1999',                                  branch:'usmc',  cat:'Survival',    file:'Mcrp3-02cUsMarinesCombatWaterSurvival1999.pdf' },
+  { id:'MCMAP',         title:'Marine Corps Martial Arts',                                    branch:'usmc',  cat:'Combat',      file:'Ma-1.02MarineCorpsMartialArts.pdf' },
+  { id:'USMC CQB',      title:'Close-Quarter Combat Manual',                                 branch:'usmc',  cat:'Combat',      file:'U.S.%20Marine%20Corps%20-%20U.S.%20Marines%20Close-Quarter%20Combat%20Manual.pdf' },
+  { id:'USMC CQB',      title:'Close Combat Fighting Handbook',                              branch:'usmc',  cat:'Combat',      file:'USMC%20Close%20Combat%20Fighting%20Handbook.pdf' },
+  { id:'USMC H2H',      title:'Hand to Hand Combat',                                         branch:'usmc',  cat:'Combat',      file:'UsMarineCorps-HandToHandCombat.pdf' },
+  { id:'USMC EW',       title:'Electronic Warfare',                                          branch:'usmc',  cat:'EW',          file:'USMC_Electronic_Warfare.pdf' },
+  { id:'USMC RSO',      title:'Remote Sensor Operations',                                    branch:'usmc',  cat:'Intel',       file:'USMC_Remote_Sensor_Operations.pdf' },
+  { id:'USMC EXP',      title:'Expeditionary Maneuver Warfare',                              branch:'usmc',  cat:'Doctrine',    file:'Expeditionary_Maneuver_Warfare_USMC.pdf' },
+  { id:'USMC COIN',     title:'Counterguerilla Operations 1986',                             branch:'usmc',  cat:'COIN',        file:'UsMarinesCounterguerillaOperations1986.pdf' },
+  { id:'FMST 07-18',    title:'Cold Weather Medicine Course 2001',                           branch:'usmc',  cat:'Medical',     file:'Fmst07-18UsMarinesMwtcColdWeatherMedicineCourse2001.pdf' },
+  { id:'USMC SUMMER',   title:'Summer Survival Course Handbook 2005',                        branch:'usmc',  cat:'Survival',    file:'USMC-Summer-Survival-Course-Handbook-_6_february-2005.pdf' },
+  { id:'MCRP',          title:'United States Marine MCRP',                                   branch:'usmc',  cat:'Reference',   file:'united_states_marine_mcrp.pdf' },
+
+  // ==================== U.S. NAVY ====================
+  { id:'NWP 3-05.2',    title:'Naval Special Warfare',                                       branch:'navy',  cat:'Special Ops', file:'NWP3-05-2-Naval-Special-Warfare.pdf' },
+  { id:'NAVY SEAL',     title:'SEAL Sniper Training',                                        branch:'navy',  cat:'Special Ops', file:'NavySealSniperTraining.pdf' },
+  { id:'NAVY SEAL',     title:'SEAL Survival Handbook',                                      branch:'navy',  cat:'Special Ops', file:'The%20U.S.%20Navy%20SEAL%20Survival%20Handbook.pdf' },
+  { id:'NAVY SEAL',     title:"SEAL Patrol Leader's Handbook",                               branch:'navy',  cat:'Special Ops', file:'US%20Navy%20SEAL%20Patrol%20Leader%27s%20Handbook.pdf' },
+  { id:'SEABEE VOL1',   title:'Seabee Combat Handbook Vol. 1',                               branch:'navy',  cat:'Engineer',    file:'US_Navy_Seabee_Combat_Handbook_vol_1.pdf' },
+  { id:'SEABEE VOL2',   title:'Seabee Combat Handbook Vol. 2 1996',                          branch:'navy',  cat:'Engineer',    file:'US_Navy_Seabee_Combat_Handbook_vol_2_1996.pdf' },
+  { id:'NAVAL PT',      title:'Naval Aviation Physical Training - Wrestling',                 branch:'navy',  cat:'Training',    file:'The%20Naval%20Aviation%20Physical%20Training%20Manuals%20-%20Wrestling.pdf' },
+
+  // ==================== U.S. AIR FORCE ====================
+  { id:'USAF BMT',      title:'Basic Military Training [Air Force Reserve]',                 branch:'af',    cat:'Training',    file:'Basic%20Military%20Training%20%5BAir%20Force%20%20Reserve%5D.pdf' },
+
+  // ==================== JOINT / MULTI-SERVICE ====================
+  { id:'JOINT SURV',    title:'Multiservice Survival Evasion and Recovery 1999',             branch:'joint', cat:'Survival',    file:'UsMultiserviceSurvivalEvasionAndRecovery1999.pdf' },
+  { id:'FM SERE',       title:'Army - Survival, Evasion, and Recovery',                      branch:'joint', cat:'Survival',    file:'US%20Army%20-%20Survival%2C%20Evasion%2C%20and%20Recovery.pdf' },
+  { id:'JOINT AMPHIB',  title:'Joint Services Amphibious Doctrine',                          branch:'joint', cat:'Amphibious',  file:'US_Joint_Services_Amphibious_Doctrine.pdf' },
+  { id:'JOINT URBAN',   title:'Joint Services Urban Ops Aviation Manual',                    branch:'joint', cat:'Tactics',     file:'US_Joint_Services_Urban_OPs_Aviation_Manual.pdf' },
+  { id:'JOINT RADIO',   title:'Joint Services Tactical Use of Radios',                       branch:'joint', cat:'Comms',       file:'US_Joint_Services_Tactical_Use_Of_Radios.pdf' },
+  { id:'INTERSERV NL',  title:'Interservice Manual on Employing Non-Lethal Force',           branch:'joint', cat:'Operations',  file:'US_ARMY_NAVY_MARINES_Interservice_Manual_On_Employing_Non_Lethal_Force.pdf' },
+  { id:'INTERSERV PEA', title:'All Services Manual on Peacetime Operations',                 branch:'joint', cat:'Operations',  file:'US_All_Services_Manual_On_Peacetime_OPS.pdf' },
+  { id:'INTERSERV HF',  title:'Interservice Manual for HF-ALE Radios',                       branch:'joint', cat:'Comms',       file:'US_Army_Navy_Marines_Interservice_Manual_For_HF-ALE_Radios.pdf' },
+  { id:'INTERSERV VHF', title:'Interservice Manual - Single Channel Airborne Radios',        branch:'joint', cat:'Comms',       file:'US_Army_Navy_Marines_%26_Air_Force_Interservice_Manual_4_Single%20Channel_Airborne_Radios.pdf' },
+  { id:'OPS TERMS',     title:'Army and Marines Operational Terms and Graphics',              branch:'joint', cat:'Reference',   file:'US_Army_And_Marines_Operational%20Terms_And_Graphics.pdf' },
+  { id:'DOD INDEX',     title:'DoD Index of Military Terms',                                 branch:'joint', cat:'Reference',   file:'US_Department_Of_Defense_Index_Of_Military_Terms.pdf' },
+  { id:'DOD EMP',       title:'DoD Electromagnetic Pulse Protection Manual',                 branch:'joint', cat:'EW',          file:'DOD%20Electromagnetic%20Pulse%20Protection%20Manual.pdf' },
+  { id:'EP EMCON',      title:'EP EMCON SOP',                                                branch:'joint', cat:'EW',          file:'EP%20EMCON%20SOP.pdf' },
+  { id:'ANTENNAS',      title:'Antennas Field Manual',                                       branch:'joint', cat:'Comms',       file:'antennas.pdf' },
+
+  // ==================== FOREIGN / REFERENCE ====================
+  { id:'CA B-GL-392',   title:'Ambush & Counter Ambush (Canadian)',                          branch:'other', cat:'Tactics',     file:'Ambush%20%26%20Counter%20Ambush%20-%20B-GL-392-008-FP-001.pdf' },
+  { id:'GUERRILLA',     title:'The Guerrilla and How to Fight Him',                           branch:'other', cat:'COIN',        file:'The-Guerrilla-and-How-to-Fight-Him.pdf' },
+  { id:'GUERRILLA CAMP',title:'Guerrilla Warfare Camp - Leadership & Planning',              branch:'other', cat:'COIN',        file:'Guerrilla%20Warfare%20Camp%20-%20Level%202%20-%20Leadership%20%26%20Planning.pdf' },
+  { id:'JSOU HUNTER',   title:'Hunter Killer Teams: Attacking Enemy Safe Havens',            branch:'other', cat:'Special Ops', file:'Hunter_Killer_Teams_Attacking_Enemy_Safe_Havens_JSOU_Report_10_1.pdf' },
+  { id:'FORTIFICATION', title:'Field Fortifications (English)',                              branch:'other', cat:'Engineer',    file:'FieldFortificationsEn0065.pdf' },
+  { id:'FIRECRAFT',     title:'Complete Guide to Firecraft, Tools, Camouflage, Tracking',    branch:'other', cat:'Survival',    file:'The_Complete_Guide_to_Firecraft%2C_Tools%2C_Camouflage%2C_Tracking%2C_Movement.pdf' },
+];
+
+const branchLabels = {
+  army:'U.S. ARMY', usmc:'U.S. MARINE CORPS', navy:'U.S. NAVY',
+  af:'U.S. AIR FORCE', joint:'JOINT / MULTI-SERVICE', other:'FOREIGN / REFERENCE'
+};
+const branchOrder = ['army','usmc','navy','af','joint','other'];
+let currentFilter = 'all';
+let currentSearch = '';
+
+function buildSite() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = '<div id="no-results" style="display:none">// NO RECORDS FOUND //</div>';
+
+  branchOrder.forEach(branch => {
+    const items = manuals.filter(m => m.branch === branch);
+    if (!items.length) return;
+
+    const section = document.createElement('div');
+    section.className = 'category-section';
+    section.dataset.branch = branch;
+
+    section.innerHTML = `<div class="section-header"><h2>${branchLabels[branch]}</h2><span class="count">(${items.length} documents)</span></div>`;
+
+    const grid = document.createElement('div');
+    grid.className = 'manual-grid';
+
+    items.forEach(m => {
+      const card = document.createElement('div');
+      card.className = 'manual-card';
+      card.dataset.branch = m.branch;
+      card.dataset.search = `${m.id} ${m.title} ${m.cat} ${m.branch}`.toLowerCase();
+      const url = BASE + m.file;
+      card.innerHTML = `
+        <div class="card-designator">${m.id}</div>
+        <div class="card-title">${m.title}</div>
+        <div class="card-meta">
+          <span class="card-branch branch-${m.branch}">${m.branch.toUpperCase()}</span>
+          <span class="card-category">${m.cat}</span>
+        </div>
+        <div class="card-actions">
+          <a class="card-btn card-btn-view" href="${url}" target="_blank" rel="noopener">&#9654; VIEW</a>
+        </div>`;
+      grid.appendChild(card);
+    });
+
+    section.appendChild(grid);
+    main.appendChild(section);
+  });
+
+  document.getElementById('total-count').textContent  = manuals.length;
+  document.getElementById('total-count2').textContent = manuals.length;
+  applyFilters();
 }
 
-check_deps() {
-  echo -e "${BOLD}Checking dependencies...${NC}"
-  local missing=0
+function applyFilters() {
+  const search = currentSearch.toLowerCase().trim();
+  let shown = 0;
 
-  for cmd in wget unzip python3; do
-    if command -v "$cmd" &>/dev/null; then
-      echo -e "  ${GRN}[OK]${NC}  $cmd"
-    else
-      echo -e "  ${RED}[MISSING]${NC}  $cmd"
-      missing=1
-    fi
-  done
+  document.querySelectorAll('.manual-card').forEach(card => {
+    const visible = (currentFilter === 'all' || card.dataset.branch === currentFilter)
+                 && (!search || card.dataset.search.includes(search));
+    card.classList.toggle('hidden', !visible);
+    if (visible) shown++;
+  });
 
-  if [[ $SKIP_ZIM -eq 0 ]]; then
-    if command -v zimwriterfs &>/dev/null; then
-      echo -e "  ${GRN}[OK]${NC}  zimwriterfs ($(zimwriterfs --version 2>&1 | head -1))"
-    else
-      echo -e "  ${RED}[MISSING]${NC}  zimwriterfs"
-      echo -e "             Install with: sudo apt install zim-tools"
-      missing=1
-    fi
-  fi
+  document.querySelectorAll('.category-section').forEach(s => {
+    const branchMatch = currentFilter === 'all' || s.dataset.branch === currentFilter;
+    s.style.display = (branchMatch && s.querySelectorAll('.manual-card:not(.hidden)').length > 0) ? '' : 'none';
+  });
 
-  if [[ $missing -eq 1 ]]; then
-    echo ""
-    echo -e "${RED}[ERROR]${NC} Missing dependencies. Install them and re-run."
-    exit 1
-  fi
-  echo ""
+  document.getElementById('shown-count').textContent  = shown;
+  document.getElementById('visible-count').textContent = shown;
+  document.getElementById('no-results').style.display = shown === 0 ? 'block' : 'none';
 }
 
-download_pdfs() {
-  echo -e "${BOLD}Step 1: Downloading PDF collection from archive.org${NC}"
-  echo -e "  ${CYN}URL:${NC} ${ARCHIVE_URL}"
-  echo ""
-  echo -e "  This is a large download (~7GB compressed). This will take a"
-  echo -e "  while depending on your connection speed."
-  echo ""
+document.getElementById('search').addEventListener('input', e => { currentSearch = e.target.value; applyFilters(); });
+document.getElementById('filter-btns').addEventListener('click', e => {
+  if (!e.target.matches('.filter-btn')) return;
+  currentFilter = e.target.dataset.filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b === e.target));
+  applyFilters();
+});
 
-  mkdir -p "$PDF_DIR"
-
-  if [[ -f "$TMP_ZIP" ]]; then
-    echo -e "  ${YLW}[INFO]${NC}  Found existing download at ${TMP_ZIP}"
-    read -rp "  Re-use it? [Y/n]: " reuse
-    reuse="${reuse:-Y}"
-    if [[ "$reuse" =~ ^[Nn]$ ]]; then
-      rm -f "$TMP_ZIP"
-    fi
-  fi
-
-  if [[ ! -f "$TMP_ZIP" ]]; then
-    echo -e "  ${YLW}[GET]${NC}   Downloading zip..."
-    wget \
-      --progress=bar:force \
-      --tries=3 \
-      --timeout=300 \
-      --waitretry=30 \
-      --continue \
-      --user-agent="Mozilla/5.0 (compatible; personal-archive-downloader)" \
-      -O "$TMP_ZIP" \
-      "$ARCHIVE_URL"
-    echo ""
-  fi
-
-  echo -e "  ${YLW}[INFO]${NC}  Extracting PDFs to ${PDF_DIR}..."
-  echo ""
-
-  # Extract only PDF files, flatten any subdirectory structure into pdf_dir
-  unzip -o -j "$TMP_ZIP" "*.pdf" -d "$PDF_DIR" 2>&1 | \
-    grep -E "inflating|extracting" | \
-    awk '{print "  extracting: " $NF}' || true
-
-  PDF_COUNT=$(find "$PDF_DIR" -name "*.pdf" | wc -l)
-  echo ""
-  echo -e "  ${GRN}[OK]${NC}   ${PDF_COUNT} PDFs extracted to ${PDF_DIR}"
-  echo ""
-
-  # Clean up zip to save space
-  read -rp "  Delete the downloaded zip file to save disk space? [Y/n]: " cleanup
-  cleanup="${cleanup:-Y}"
-  if [[ ! "$cleanup" =~ ^[Nn]$ ]]; then
-    rm -f "$TMP_ZIP"
-    echo -e "  ${YLW}[INFO]${NC}  Zip removed."
-  fi
-  echo ""
-}
-
-build_zim() {
-  echo -e "${BOLD}Step 2: Building ZIM file${NC}"
-
-  if [[ ! -f "${HTML_DIR}/index.html" ]]; then
-    echo -e "  ${RED}[ERROR]${NC}  index.html not found at ${HTML_DIR}/index.html"
-    exit 1
-  fi
-
-  if [[ ! -f "${HTML_DIR}/illustration.png" ]]; then
-    echo -e "  ${YLW}[INFO]${NC}  illustration.png not found -- generating one..."
-    python3 -c "
-import struct, zlib
-
-def png48(r, g, b):
-    raw = bytes([0] + [r, g, b] * 48) * 48
-    def chunk(t, d):
-        c = struct.pack('>I', len(d)) + t + d
-        return c + struct.pack('>I', zlib.crc32(c[4:]) & 0xffffffff)
-    data  = chunk(b'IHDR', struct.pack('>IIBBBBB', 48, 48, 8, 2, 0, 0, 0))
-    data += chunk(b'IDAT', zlib.compress(raw))
-    data += chunk(b'IEND', b'')
-    return b'\x89PNG\r\n\x1a\n' + data
-
-open('${HTML_DIR}/illustration.png', 'wb').write(png48(74, 82, 64))
-print('  illustration.png created')
-"
-  fi
-
-  PDF_COUNT=$(find "$PDF_DIR" -name "*.pdf" 2>/dev/null | wc -l)
-  echo -e "  ${CYN}Source:${NC}  ${HTML_DIR}"
-  echo -e "  ${CYN}Output:${NC}  ${ZIM_OUT}"
-  echo -e "  ${CYN}PDFs:${NC}    ${PDF_COUNT} files"
-  echo ""
-
-  if [[ -f "$ZIM_OUT" ]]; then
-    echo -e "  ${YLW}[INFO]${NC}  Removing existing $(basename "$ZIM_OUT")..."
-    rm -f "$ZIM_OUT"
-  fi
-
-  echo -e "  ${YLW}[INFO]${NC}  Running zimwriterfs -- this will take several minutes..."
-  echo "────────────────────────────────────────────────────────────────"
-
-  zimwriterfs \
-    -w index.html \
-    -I illustration.png \
-    -l eng \
-    -n "field_manuals" \
-    -t "US Military Field Manuals" \
-    -d "Project Nomad offline reference" \
-    -L "Project Nomad offline reference collection of US military field manuals sourced from the Internet Archive. Includes Army, USMC, Navy, Air Force, and joint publications for offline use with Kiwix." \
-    -c "US Government" \
-    -p "ProjectNomad" \
-    -v \
-    "$HTML_DIR" \
-    "$ZIM_OUT"
-
-  echo "────────────────────────────────────────────────────────────────"
-  echo ""
-
-  if [[ -f "$ZIM_OUT" ]]; then
-    SIZE=$(du -sh "$ZIM_OUT" | cut -f1)
-    echo -e "  ${GRN}[OK]${NC}  ZIM created: $(basename "$ZIM_OUT") (${SIZE})"
-  else
-    echo -e "  ${RED}[ERROR]${NC}  ZIM file not found after build."
-    exit 1
-  fi
-  echo ""
-}
-
-deploy_instructions() {
-  echo -e "${BOLD}Done. To deploy to Kiwix:${NC}"
-  echo ""
-  echo    "  1. Copy the ZIM file to your Kiwix library directory:"
-  echo    "     cp field_manuals.zim /your/kiwix/library/"
-  echo ""
-  echo    "  2. Set correct ownership (use the container's uid):"
-  echo    "     KIWIX_UID=\$(sudo docker exec <kiwix_container> id -u)"
-  echo    "     sudo chown \$KIWIX_UID:\$KIWIX_UID /your/kiwix/library/field_manuals.zim"
-  echo    "     sudo chown \$KIWIX_UID:\$KIWIX_UID /your/kiwix/library/kiwix-library.xml"
-  echo ""
-  echo    "  3. Register with Kiwix:"
-  echo    "     sudo docker exec -u \$KIWIX_UID <kiwix_container> kiwix-manage \\"
-  echo    "       /data/kiwix-library.xml add \\"
-  echo    "       /data/field_manuals.zim"
-  echo ""
-  echo    "  4. Restart the Kiwix container:"
-  echo    "     sudo docker restart <kiwix_container>"
-  echo ""
-  echo    "  Or run this script with --deploy to do all of the above automatically:"
-  echo    "     ./install.sh --skip-download --deploy \\"
-  echo    "       --zim-dest=/your/kiwix/library \\"
-  echo    "       --container=<kiwix_container>"
-  echo ""
-}
-
-deploy() {
-  local zim_name
-  zim_name=$(basename "$ZIM_OUT")
-  local dest_zim="${ZIM_DEST}/${zim_name}"
-  local dest_xml="${ZIM_DEST}/kiwix-library.xml"
-
-  echo -e "${BOLD}Step 3: Deploying to Kiwix${NC}"
-  echo -e "  ${CYN}Container :${NC} ${CONTAINER}"
-  echo -e "  ${CYN}Library   :${NC} ${ZIM_DEST}"
-  echo ""
-
-  # Check container is running
-  if ! sudo docker inspect "$CONTAINER" &>/dev/null; then
-    echo -e "  ${RED}[ERROR]${NC}  Container '${CONTAINER}' not found."
-    exit 1
-  fi
-
-  # Get the uid the container runs as
-  KIWIX_UID=$(sudo docker exec "$CONTAINER" id -u)
-  echo -e "  ${YLW}[INFO]${NC}  Container runs as uid ${KIWIX_UID}"
-
-  # Copy ZIM to destination
-  echo -e "  ${YLW}[INFO]${NC}  Copying $(basename "$ZIM_OUT") to ${ZIM_DEST}..."
-  sudo cp "$ZIM_OUT" "$dest_zim"
-
-  # Fix ownership on ZIM and library XML
-  echo -e "  ${YLW}[INFO]${NC}  Setting ownership to ${KIWIX_UID}:${KIWIX_UID}..."
-  sudo chown "${KIWIX_UID}:${KIWIX_UID}" "$dest_zim"
-  if [[ -f "$dest_xml" ]]; then
-    sudo chown "${KIWIX_UID}:${KIWIX_UID}" "$dest_xml"
-  fi
-
-  # Remove existing entry if present (ignore errors if not found)
-  echo -e "  ${YLW}[INFO]${NC}  Removing any existing entry from Kiwix library..."
-  EXISTING_ID=$(sudo docker exec -u "$KIWIX_UID" "$CONTAINER" \
-    kiwix-manage /data/kiwix-library.xml show 2>/dev/null | \
-    grep -B1 "name:.*field_manuals" | grep "^id:" | awk '{print $2}' || true)
-
-  if [[ -n "$EXISTING_ID" ]]; then
-    sudo docker exec -u "$KIWIX_UID" "$CONTAINER" \
-      kiwix-manage /data/kiwix-library.xml remove "$EXISTING_ID"
-    echo -e "  ${YLW}[INFO]${NC}  Removed existing entry: ${EXISTING_ID}"
-  fi
-
-  # Add new ZIM to library
-  echo -e "  ${YLW}[INFO]${NC}  Registering with Kiwix library..."
-  sudo docker exec -u "$KIWIX_UID" "$CONTAINER" \
-    kiwix-manage /data/kiwix-library.xml add "/data/${zim_name}"
-
-  # Restart container
-  echo -e "  ${YLW}[INFO]${NC}  Restarting ${CONTAINER}..."
-  sudo docker restart "$CONTAINER"
-
-  echo ""
-  echo -e "  ${GRN}[OK]${NC}  Deployment complete. Kiwix is restarting."
-  echo ""
-}
-
-# =============================================================================
-banner
-check_deps
-
-if [[ $SKIP_DOWNLOAD -eq 0 ]]; then
-  download_pdfs
-else
-  echo -e "${YLW}[INFO]${NC}  Skipping download (--skip-download)."
-  echo ""
-fi
-
-if [[ $SKIP_ZIM -eq 0 ]]; then
-  build_zim
-else
-  echo -e "${YLW}[INFO]${NC}  Skipping ZIM build (--skip-zim)."
-  echo ""
-fi
-
-if [[ $DEPLOY -eq 1 ]]; then
-  deploy
-else
-  deploy_instructions
-fi
+buildSite();
+</script>
+</body>
+</html>
