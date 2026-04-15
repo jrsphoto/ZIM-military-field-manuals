@@ -50,6 +50,14 @@ The simplest way is to let the script handle everything in one shot:
   --container=your_kiwix_container
 ```
 
+**Project Nomad users:**
+```bash
+./install.sh \
+  --deploy \
+  --zim-dest=/opt/project-nomad/storage/zim \
+  --container=nomad_kiwix_server
+```
+
 This will:
 - Download the full PDF collection from archive.org as a single zip (~7GB -- expect it to take a while)
 - Extract all PDFs into `html/pdfs/`
@@ -79,6 +87,14 @@ If you update `index.html` or add more PDFs, re-run with `--skip-download` and `
   --deploy \
   --zim-dest=/your/kiwix/library \
   --container=your_kiwix_container
+```
+
+**Project Nomad users:**
+```bash
+./install.sh --skip-download \
+  --deploy \
+  --zim-dest=/opt/project-nomad/storage/zim \
+  --container=nomad_kiwix_server
 ```
 
 The script will remove any existing entries for this ZIM from the Kiwix library before re-adding the new one, so no duplicates build up over time.
