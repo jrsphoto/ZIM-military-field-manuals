@@ -16,17 +16,17 @@
 #   chmod +x install.sh
 #   ./install.sh
 #
-# To skip the download (if you already have the PDFs):
-#   ./install.sh --skip-download
+# To force a fresh download even if PDFs already exist:
+#   ./install.sh --download
 #
 # To skip the ZIM build (just download the PDFs):
 #   ./install.sh --skip-zim
 #
 # To automatically deploy to a local Kiwix container after building:
-#   ./install.sh --deploy --zim-dest /path/to/kiwix/library --container nomad_kiwix_server
+#   ./install.sh --deploy --zim-dest=/path/to/kiwix/library --container=nomad_kiwix_server
 #
 # All options can be combined:
-#   ./install.sh --skip-download --deploy --zim-dest /opt/project-nomad/storage/zim --container nomad_kiwix_server
+#   ./install.sh --deploy --zim-dest=/opt/project-nomad/storage/zim --container=nomad_kiwix_server
 # =============================================================================
 
 set -euo pipefail
@@ -39,7 +39,7 @@ TMP_ZIP="${SCRIPT_DIR}/manuals_download.zip"
 
 ARCHIVE_URL="https://archive.org/compress/military-field-manuals-and-guides/formats=TEXT%20PDF,IMAGE%20CONTAINER%20PDF,ITEM%20TILE,ARCHIVE%20BITTORRENT,METADATA"
 
-SKIP_DOWNLOAD=0
+FORCE_DOWNLOAD=0
 SKIP_ZIM=0
 DEPLOY=0
 ZIM_DEST=""
@@ -47,7 +47,7 @@ CONTAINER=""
 
 for arg in "$@"; do
   case $arg in
-    --skip-download)   SKIP_DOWNLOAD=1 ;;
+    --download)        FORCE_DOWNLOAD=1 ;;
     --skip-zim)        SKIP_ZIM=1 ;;
     --deploy)          DEPLOY=1 ;;
     --zim-dest=*)      ZIM_DEST="${arg#*=}" ;;
@@ -237,7 +237,7 @@ deploy_instructions() {
   echo    "     sudo docker restart <kiwix_container>"
   echo ""
   echo    "  Or run this script with --deploy to do all of the above automatically:"
-  echo    "     ./install.sh --skip-download --deploy \\"
+  echo    "     ./install.sh --deploy \\"
   echo    "       --zim-dest=/your/kiwix/library \\"
   echo    "       --container=<kiwix_container>"
   echo ""
@@ -309,11 +309,17 @@ deploy() {
 banner
 check_deps
 
-if [[ $SKIP_DOWNLOAD -eq 0 ]]; then
-  download_pdfs
-else
-  echo -e "${YLW}[INFO]${NC}  Skipping download (--skip-download)."
+PDF_COUNT=$(find "$PDF_DIR" -name "*.pdf" 2>/dev/null | wc -l)
+if [[ $FORCE_DOWNLOAD -eq 1 ]]; then
+  echo -e "${YLW}[INFO]${NC}  --download specified, forcing fresh download."
   echo ""
+  download_pdfs
+elif [[ $PDF_COUNT -gt 0 ]]; then
+  echo -e "${YLW}[INFO]${NC}  Found ${PDF_COUNT} PDFs in ${PDF_DIR}, skipping download."
+  echo -e "         Run with --download to force a fresh download."
+  echo ""
+else
+  download_pdfs
 fi
 
 if [[ $SKIP_ZIM -eq 0 ]]; then

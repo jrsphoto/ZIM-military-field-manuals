@@ -72,7 +72,7 @@ If the download gets interrupted just re-run -- wget will resume where it left o
 
 | Option | Description |
 |--------|-------------|
-| `--skip-download` | Skip the PDF download, use existing files in `html/pdfs/` |
+| `--download` | Force a fresh download even if PDFs already exist in `html/pdfs/` |
 | `--skip-zim` | Skip the ZIM build, just download the PDFs |
 | `--deploy` | Automatically deploy to Kiwix after building (requires `--zim-dest` and `--container`) |
 | `--zim-dest=PATH` | Path to your Kiwix library directory on the host |
@@ -80,10 +80,10 @@ If the download gets interrupted just re-run -- wget will resume where it left o
 
 ## Rebuilding
 
-If you update `index.html` or add more PDFs, re-run with `--skip-download` and `--deploy`:
+If you update `index.html` or add more PDFs, re-run with `--deploy`. The script will detect existing PDFs and skip the download automatically:
 
 ```bash
-./install.sh --skip-download \
+./install.sh \
   --deploy \
   --zim-dest=/your/kiwix/library \
   --container=your_kiwix_container
@@ -91,7 +91,16 @@ If you update `index.html` or add more PDFs, re-run with `--skip-download` and `
 
 **Project Nomad users:**
 ```bash
-./install.sh --skip-download \
+./install.sh \
+  --deploy \
+  --zim-dest=/opt/project-nomad/storage/zim \
+  --container=nomad_kiwix_server
+```
+
+To force a fresh download at the same time, add `--download`:
+
+```bash
+./install.sh --download \
   --deploy \
   --zim-dest=/opt/project-nomad/storage/zim \
   --container=nomad_kiwix_server
