@@ -312,6 +312,10 @@ check_deps
 PDF_COUNT=$(find "$PDF_DIR" -name "*.pdf" 2>/dev/null | wc -l)
 if [[ $FORCE_DOWNLOAD -eq 1 ]]; then
   echo -e "${YLW}[INFO]${NC}  --download specified, forcing fresh download."
+  if [[ $PDF_COUNT -gt 0 ]]; then
+    echo -e "${YLW}[INFO]${NC}  Removing existing PDFs from ${PDF_DIR}..."
+    rm -f "${PDF_DIR}"/*.pdf
+  fi
   echo ""
   download_pdfs
 elif [[ $PDF_COUNT -gt 0 ]]; then
