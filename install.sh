@@ -175,7 +175,7 @@ build_zim() {
     exit 1
   fi
 
-  PDF_COUNT=$(find "$PDF_DIR" -name "*.pdf" 2>/dev/null | wc -l)
+  PDF_COUNT=$(find "$PDF_DIR" -name "*.pdf" 2>/dev/null | wc -l || true)
   echo -e "  ${CYN}Source:${NC}  ${HTML_DIR}"
   echo -e "  ${CYN}Output:${NC}  ${ZIM_OUT}"
   echo -e "  ${CYN}PDFs:${NC}    ${PDF_COUNT} files"
@@ -309,7 +309,7 @@ deploy() {
 banner
 check_deps
 
-PDF_COUNT=$(find "$PDF_DIR" -name "*.pdf" 2>/dev/null | wc -l)
+PDF_COUNT=$(find "$PDF_DIR" -name "*.pdf" 2>/dev/null | wc -l || true)
 if [[ $FORCE_DOWNLOAD -eq 1 ]]; then
   echo -e "${YLW}[INFO]${NC}  --download specified, forcing fresh download."
   if [[ $PDF_COUNT -gt 0 ]]; then
